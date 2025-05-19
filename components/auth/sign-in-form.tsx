@@ -22,12 +22,14 @@ import Link from "next/link";
 import { Eye, EyeOff } from "lucide-react";
 import { credentialsSignInAction } from "@/actions/authActions";
 import { prettifyFlattenedErrors } from "@/lib/helpers";
-
+import { Alert, AlertDescription } from "../ui/alert";
+import { useRouter } from "next/navigation";
 export default function SignInForm({ className }: { className?: string }) {
   const [passwordVisible, setPasswordVisible] = useState(false);
 
   const togglePasswordVisibility = () => setPasswordVisible(!passwordVisible);
-
+  const [success, setSuccess] = useState(false);
+  const [message, setMessage] = useState("");
   const form = useForm<z.infer<typeof SignInSchema>>({
     resolver: zodResolver(SignInSchema),
     defaultValues: {
@@ -36,31 +38,41 @@ export default function SignInForm({ className }: { className?: string }) {
     },
   });
 
+  const router = useRouter();
   async function onSubmit({ email, password }: z.infer<typeof SignInSchema>) {
+    setSuccess(false);
+    setMessage("");
     const formData = new FormData();
     formData.append("email", email);
     formData.append("password", password);
-    try {
-      // send data to server
 
+    // globalError or errors
+
+    try {
       const response = await credentialsSignInAction(formData);
 
-      if (!response?.success) {
-        const errors = prettifyFlattenedErrors(response?.errors);
+      if (response?.success) {
+        setSuccess(true);
+        setMessage(response.message);
+        toast.success("Signed in successfully!");
 
+        setTimeout(() => router.replace("/"), 2000);
+      } else if (response?.errors) {
+        const errors = prettifyFlattenedErrors(response?.errors);
         errors.forEach((error) => {
           form.setError(error.name, {
             type: error.type,
             message: error.message,
           });
         });
-      } else
-        toast.success("Signed in successfully!", {
-          duration: 3000,
-        });
+      } else {
+        setSuccess(false);
+        setMessage(response?.globalError || "Something went wrong.");
+      }
     } catch (error) {
-      console.error("Form submission error", error);
-      toast.error("Failed to submit the form. Please try again.");
+      console.error("Sign in submission error:", error);
+      setSuccess(false);
+      setMessage("Something went wrong. Please try again.");
     }
   }
 
@@ -100,7 +112,7 @@ export default function SignInForm({ className }: { className?: string }) {
               <FormLabel className="relative">
                 Password{" "}
                 <Link
-                  href="/forgot-password"
+                  href="/auth/forgot-password"
                   className="absolute right-0 text-xs hover:text-blue-500 px-2 py-4"
                 >
                   Forgot Password ?
@@ -136,6 +148,11 @@ export default function SignInForm({ className }: { className?: string }) {
             </FormItem>
           )}
         />
+        {message && (
+          <Alert variant={success ? "success" : "destructive"}>
+            <AlertDescription>{message}</AlertDescription>
+          </Alert>
+        )}
         <Button className="w-full hover:cursor-pointer" type="submit">
           Sign In
         </Button>

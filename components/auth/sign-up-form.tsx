@@ -50,6 +50,8 @@ export default function SignUpForm() {
     password,
     confirmPassword,
   }: z.infer<typeof SignUpSchema>) {
+    // reset error messages
+    setGlobalError("");
     // create formData
     const formData = new FormData();
     // append form data
@@ -62,36 +64,44 @@ export default function SignUpForm() {
     // send data to server
 
     try {
-      setGlobalError("");
       const response = await crendentialsSignUpAction(formData);
 
-      if (!response?.success) {
-        const errors = prettifyFlattenedErrors(response?.errors);
+      if (!response) {
+        setGlobalError("Oops, Something went wrong!");
+      }
 
-        errors.forEach((error) => {
-          setError(error.name, {
-            type: error.type,
-            message: error.message,
-          });
-        });
-      } else if (response.globalError) {
+      if (response?.success) {
+        toast.success("Signed up successfully! Redirecting...");
+        setTimeout(() => router.push("/auth/sign-in"), 3000);
+      }
+
+      // errors
+
+      if (response.errors) {
+        prettifyFlattenedErrors(response.errors).forEach(
+          ({ name, type, message }) => {
+            setError(
+              name as
+                | "fullName"
+                | "userName"
+                | "email"
+                | "password"
+                | "confirmPassword",
+              {
+                type,
+                message,
+              }
+            );
+          }
+        );
+      }
+      if (response.globalError) {
         setGlobalError(response.globalError);
-      } else {
-        toast("Account created successfully");
-
-        // redirect after 3 seconds
-
-        toast(response.message, {
-          duration: 3000,
-        });
-
-        setTimeout(() => {
-          router.push("/");
-        }, 3000);
       }
     } catch (error) {
-      console.log(error);
-      toast.error("Failed to submit the form. Please try again.");
+      console.error("Sign-up error:", error);
+      setGlobalError("An unexpected error occurred. Please try again.");
+      toast.error("Oops! Something went wrong. Please try again.");
     }
   }
 

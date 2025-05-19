@@ -36,7 +36,7 @@ const EmailVerificationReminderCard = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [success, setSuccess] = useState(true);
   const [globalError, setGlobalError] = useState<string | null>(null);
-  const targetEmail = useSearchParams().get("email");
+  const targetEmail = decodeURIComponent(useSearchParams().get("email") || "");
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
 
   useEffect(() => {

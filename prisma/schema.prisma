@@ -27,32 +27,67 @@ enum Role {
   ADMIN
 }
 
+enum PostType {
+  TEXT
+  IMAGE
+  VIDEO
+  MIXED_MEDIA
+  POLL
+  REPOST
+  QUOTE
+}
+
+enum Visibility {
+  PUBLIC
+  FOLLOWERS
+  MENTIONED
+}
+
+enum ReplySettings {
+  EVERYONE
+  FOLLOWERS
+  MENTIONED
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
 model User {
-  id                     String              @id @default(cuid())
-  userName               String              @unique
-  email                  String              @unique
-  name                   String?
-  image                  String?
-  fullName               String?
-  emailVerified          DateTime?
-  password               String?
-  accounts               Account[]
-  sessions               Session[]
-  bio                    String              @default("")
-  role                   Role                @default(USER)
-  relationship           RelationshipStatus? @default(NOT_MENTIONED)
-  gender                 Gender?             @default(NOT_MENTIONED)
-  posts                  Post[]
-  comments               Comment[]
-  likes                  Like[]
-  followers              Follower[]          @relation("UserFollowers")
-  following              Follower[]          @relation("UserFollowings")
-  followersCount         Int                 @default(0)
-  followingCount         Int                 @default(0)
-  followRequestsSent     FollowRequest[]     @relation("FollowRequestsSent")
-  followRequestsReceived FollowRequest[]     @relation("FollowRequestsReceived")
-  blockedUsers           Block[]             @relation("UserBlocks")
-  blockedBy              Block[]             @relation("UserBlockedBy")
+  // Base
+  id            String              @id @default(cuid())
+  userName      String              @unique
+  email         String              @unique
+  image         String?
+  fullName      String?
+  emailVerified DateTime?
+  password      String?
+  accounts      Account[]
+  sessions      Session[]
+  bio           String              @default("")
+  role          Role                @default(USER)
+  relationship  RelationshipStatus? @default(NOT_MENTIONED)
+  gender        Gender?             @default(NOT_MENTIONED)
+
+  // Post relationships
+
+  posts            Post[]
+  comments         Comment[]
+  likes            Like[]
+  mentionedInPosts Post[]       @relation("PostMentions")
+  pollVotes        PollOption[] @relation("PollVotes")
+
+  // social relationships 
+
+  followers              Follower[]      @relation("UserFollowers")
+  following              Follower[]      @relation("UserFollowings")
+  followersCount         Int             @default(0)
+  followingCount         Int             @default(0)
+  followRequestsSent     FollowRequest[] @relation("FollowRequestsSent")
+  followRequestsReceived FollowRequest[] @relation("FollowRequestsReceived")
+  blockedUsers           Block[]         @relation("UserBlocks")
+  blockedBy              Block[]         @relation("UserBlockedBy")
   // Optional for WebAuthn support
   Authenticator          Authenticator[]
 
@@ -61,7 +96,6 @@ model User {
   Follower      Follower[]
   FollowRequest FollowRequest[]
 
-  @@unique([userName, email])
   @@index([userName])
   @@index([email])
 }
@@ -123,29 +157,119 @@ model Authenticator {
 }
 
 model Post {
-  id            String      @id @default(cuid())
-  content       String      @default("")
-  User          User        @relation(fields: [userId], references: [id])
-  userId        String
-  tags          Tag[]
-  likes         Like[]
-  comments      Comment[]
-  images        PostImage[]
-  likesCount    Int         @default(0)
-  commentsCount Int         @default(0)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  id       String   @id @default(cuid())
+  type     PostType @default(TEXT)
+  content  String   @default("")
+  author   User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  authorId String
+
+  // Metrics
+  likesCount    Int @default(0)
+  repostsCount  Int @default(0)
+  quotesCount   Int @default(0)
+  commentsCount Int @default(0)
+
+  // Visibility and reply settings
+  visibility    Visibility    @default(PUBLIC)
+  replySettings ReplySettings @default(EVERYONE)
+
+  // Related entities
+  tags     Tag[]
+  mentions User[]    @relation("PostMentions")
+  likes    Like[]
+  comments Comment[]
+  media    Media[]
+
+  // For replies and threads
+  inReplyToPost   Post?   @relation("PostReplies", fields: [inReplyToPostId], references: [id], onDelete: SetNull)
+  inReplyToPostId String?
+  replies         Post[]  @relation("PostReplies")
+
+  threadRoot   Post?   @relation("ThreadPosts", fields: [threadRootId], references: [id], onDelete: SetNull)
+  threadRootId String?
+  threadPosts  Post[]  @relation("ThreadPosts")
+
+  // For reposts and quotes
+  originalPost   Post?   @relation("Reposts", fields: [originalPostId], references: [id], onDelete: SetNull)
+  originalPostId String?
+  reposts        Post[]  @relation("Reposts")
+
+  // For poll posts
+  poll Poll?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([inReplyToPostId])
+  @@index([threadRootId])
+  @@index([originalPostId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model Media {
+  id           String    @id @default(cuid())
+  type         MediaType
+  url          String
+  thumbnailUrl String?
+  width        Int?
+  height       Int?
+  position     Int       @default(0)
+  altText      String? // For accessibility
+  duration     Int? // For videos (in seconds)
+
+  // Relation to post
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Poll {
+  id               String   @id @default(cuid())
+  expiresAt        DateTime
+  isMultipleChoice Boolean  @default(false)
+  totalVotes       Int      @default(0)
+
+  // Relation to post
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId String @unique // One-to-one relationship
+
+  // Poll options
+  options PollOption[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PollOption {
+  id    String @id @default(cuid())
+  text  String
+  votes Int    @default(0)
+
+  // Relation to poll
+  poll   Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  pollId String
+
+  // Relation to users who voted (optional)
+  voters User[] @relation("PollVotes")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pollId])
 }
 
 model Comment {
   id        String   @id @default(cuid())
   content   String
-  userId    String?
-  postId    String?
+  userId    String
+  postId    String
   post      Post?    @relation(fields: [postId], references: [id])
   postedBy  User?    @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
-  Like      Like[]
+  likes     Like[]
 }
 
 model Like {
@@ -169,6 +293,7 @@ model Follower {
   following   User     @relation("UserFollowings", fields: [followingId], references: [id], onDelete: Cascade)
   followingId String
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
   User        User?    @relation(fields: [userId], references: [id])
   userId      String?
 
@@ -179,16 +304,6 @@ model Tag {
   id        String   @id @default(cuid())
   name      String   @unique
   posts     Post[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model PostImage {
-  id        String   @id @default(cuid())
-  url       String
-  postId    String
-  post      Post     @relation(fields: [postId], references: [id])
-  order     Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

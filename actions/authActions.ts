@@ -1,10 +1,11 @@
 "use server";
 
-import { signIn } from "@/auth";
+import { signIn, signOut } from "@/auth";
 import { BCRYPT_SALT_ROUNDS } from "@/lib/constants";
 import { prisma } from "@/lib/db";
 import { SignInSchema, SignUpSchema } from "@/lib/schemas";
 import bcrypt from "bcryptjs";
+import { AuthError } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 export const crendentialsSignUpAction = async (formData: FormData) => {
@@ -12,7 +13,6 @@ export const crendentialsSignUpAction = async (formData: FormData) => {
   const validatedData = SignUpSchema.safeParse(Object.fromEntries(formData));
 
   if (!validatedData.success) {
-    console.log("Validation error:", validatedData.error.flatten().fieldErrors);
     return {
       success: false,
       errors: validatedData.error.flatten().fieldErrors,
@@ -29,8 +29,6 @@ export const crendentialsSignUpAction = async (formData: FormData) => {
   } = validatedData.data;
   const userName = originalUsername.toLowerCase();
   const email = originalEmail.toLowerCase();
-
-  console.log({ fullName, userName, email, password });
 
   // check if username & email already in use
 
@@ -60,8 +58,6 @@ export const crendentialsSignUpAction = async (formData: FormData) => {
 
   const hashedPassword = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
 
-  console.log({ hashedPassword });
-
   // b) insert in db
 
   try {
@@ -81,15 +77,12 @@ export const crendentialsSignUpAction = async (formData: FormData) => {
     };
   }
 
-  // revalidate path
-
-  revalidatePath("/");
-
   // sign user in
 
   await signIn("credentials", {
     email,
     password,
+    redirect: false,
   });
 
   return {
@@ -99,11 +92,17 @@ export const crendentialsSignUpAction = async (formData: FormData) => {
 };
 
 export const credentialsSignInAction = async (formData: FormData) => {
+  console.log("Starting credentialsSignInAction");
+
   // validate data
   const validatedData = SignInSchema.safeParse(Object.fromEntries(formData));
+  console.log("Validation result:", validatedData);
 
   if (!validatedData.success) {
-    console.log("Validation error:", validatedData.error.flatten().fieldErrors);
+    console.log(
+      "Validation failed:",
+      validatedData.error.flatten().fieldErrors
+    );
     return {
       success: false,
       errors: validatedData.error.flatten().fieldErrors,
@@ -111,18 +110,53 @@ export const credentialsSignInAction = async (formData: FormData) => {
   }
 
   // destructure valid data & lowercase it
-
   const { email: originalEmail, password } = validatedData.data;
   const email = originalEmail.toLowerCase();
 
-  console.log({ email, password });
-
   // sign user in
+  try {
+    console.log(`Attempting sign in for email: ${email}`);
 
-  await signIn("credentials", {
-    email,
-    password,
+    // signIn fn returns a string if auth is successful
+
+    const result = await signIn("credentials", {
+      email,
+      password,
+      redirect: false,
+    });
+
+    redirect(result);
+
+    return {
+      success: true,
+      message: "Signed in successfully",
+    };
+  } catch (error) {
+    console.error("Sign in error:", error);
+
+    if (error instanceof AuthError) {
+      switch (error.type) {
+        case "CredentialsSignin":
+          console.error("Invalid credentials");
+          return {
+            success: false,
+            globalError: "Invalid credentials, try again",
+          };
+      }
+    } else {
+      throw error;
+    }
+  }
+};
+
+export const handleGoogleSignIn = async () => {
+  await signIn("google");
+};
+
+export const handleSignOutAction = async () => {
+  "use server";
+  await signOut({
+    redirect: true,
+    redirectTo: "/auth/sign-in",
   });
-
-  return { success: true };
 };
